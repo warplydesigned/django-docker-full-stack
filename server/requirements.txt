@@ -1,0 +1,7 @@
+Django==1.11.3
+redis==2.10.5
+django-redis==4.8.0
+gunicorn==19.7.1
+psycopg2==2.7.1
+celery==4.1.0
+django-environ==0.4.3

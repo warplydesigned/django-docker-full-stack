@@ -1,0 +1,95 @@
+version: '2'
+
+services:
+
+  server:
+    restart: always
+    build:
+        context: .
+        dockerfile: ./.docker/django/Dockerfile
+    ports:
+      - "8000"
+    links:
+      - postgres:postgres
+      - redis:redis
+    env_file: env
+    volumes:
+      - ./server:/data/web
+    command: /usr/bin/gunicorn config.wsgi:application -w 2 -b :8000
+
+  nginx:
+    restart: always
+    build: ./.docker/nginx/
+    ports:
+      - "80:80"
+    volumes_from:
+      - server
+    links:
+      - server:server
+
+  postgres:
+    restart: always
+    image: postgres:latest
+    volumes_from:
+      - data
+    volumes:
+      - ./.docker/postgres/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+      - ./backups/postgresql:/backup
+    env_file:
+      - env
+    expose:
+      - "5432"
+
+  redis:
+    restart: always
+    image: redis:latest
+    expose:
+      - "6379"
+
+  rabbit:
+    hostname: rabbit
+    image: rabbitmq:latest
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=mypass
+    ports:
+      - "5672:5672" # we forward this port because it's useful for debugging
+      - "15673:15672"  # here, we can access rabbitmq management plugin
+      # To turn on management: docker exec [CONTAINER_NAME] rabbitmq-plugins enable rabbitmq_management
+      
+  celeryworker:
+    build:
+      context: .
+      dockerfile: ./.docker/django/Dockerfile
+    env_file: env
+    links:
+      - postgres:postgres
+      - rabbit:rabbit
+      - redis:redis
+    depends_on:
+      - postgres
+      - rabbit
+      - redis
+    command: celery -A server.celerytasks worker -l INFO -Q default -n default@%h
+
+  celerybeat:
+    build:
+      context: .
+      dockerfile: ./.docker/django/Dockerfile
+    env_file: env
+    links:
+      - postgres:postgres
+      - rabbit:rabbit
+      - redis:redis
+    depends_on:
+      - postgres
+      - rabbit
+      - redis
+    command: celery -A server.celerytasks beat -l INFO
+
+  data:
+    restart: always
+    image: alpine
+    volumes:
+      - /var/lib/postgresql
+    command: "true"
